@@ -145,6 +145,15 @@
     width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px;
     font-family:'Inter'; font-size:13.5px; background:#fff; color:var(--ink);
   }
+  .line-add-row{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center;}
+  .line-add-row input[type=text], .line-add-row input[type=number]{
+    padding:8px 10px; border:1px solid var(--line); border-radius:6px;
+    font-family:'IBM Plex Mono',monospace; font-size:13px; background:#fff; color:var(--ink);
+  }
+  .line-add-row input#liDesc{flex:1; min-width:140px;}
+  .line-add-row input#liQty{width:80px;}
+  .line-add-row input#liRate{width:100px;}
+  .li-remove{background:none; border:none; color:var(--bad); cursor:pointer; font-size:13px;}
   .invoice-sheet{
     background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px; margin-top:16px;
     font-family:'Inter'; color:var(--ink);
@@ -248,12 +257,24 @@
 
   <div class="section-label"><h2>Generate Invoice</h2></div>
   <div class="out-card">
-    <div class="hint">Pulls line items from the Total Sale table of the field you're currently viewing.</div>
+    <div class="hint">Add whatever was actually sold — bales, crop, anything — with quantity and rate.</div>
     <div class="biz-grid">
       <div><label>Your business name</label><input type="text" id="bizName" value="Karoo Ridge Farm"></div>
       <div><label>Bill to</label><input type="text" id="invBuyer" placeholder="Buyer name"></div>
     </div>
-    <button class="add-row-btn" id="genInvoiceBtn" style="margin-top:12px;">Generate invoice for current field's sales</button>
+
+    <table class="rows" id="lineItemsTable" style="margin-top:14px;">
+      <thead><tr><th>Description</th><th class="num">Quantity</th><th class="num">Rate /unit</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="line-add-row">
+      <input type="text" id="liDesc" placeholder="e.g. Teff bales">
+      <input type="number" id="liQty" placeholder="Qty" min="0" step="1">
+      <input type="number" id="liRate" placeholder="Rate (R)" min="0" step="0.01">
+      <button class="add-row-btn" id="liAddBtn">+ Add line</button>
+    </div>
+
+    <button class="add-row-btn" id="genInvoiceBtn" style="margin-top:14px;">Generate invoice</button>
     <div id="invoicePreview"></div>
   </div>
 
@@ -510,38 +531,75 @@ document.getElementById('mapSearchInput').addEventListener('keydown', e=>{
 
 /* ---------------- Invoicing ---------------- */
 let invoiceCounter = 1001;
+let lineItems = [];
+
+function renderLineItems(){
+  const tbody = document.querySelector('#lineItemsTable tbody');
+  tbody.innerHTML = '';
+  if(!lineItems.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--ink-soft); font-size:12.5px;">No lines added yet — enter what was sold below.</td></tr>';
+    return;
+  }
+  lineItems.forEach((li, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="item-name">${li.desc}</td>
+      <td class="calc">${li.qty}</td>
+      <td class="calc">${rand(li.rate)}</td>
+      <td class="calc">${rand(li.qty*li.rate)}</td>
+      <td><button class="li-remove" data-idx="${idx}">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.li-remove').forEach(btn=>{
+    btn.onclick = ()=>{ lineItems.splice(btn.dataset.idx,1); renderLineItems(); };
+  });
+}
+renderLineItems();
+
+document.getElementById('liAddBtn').onclick = ()=>{
+  const desc = document.getElementById('liDesc').value.trim();
+  const qty = parseFloat(document.getElementById('liQty').value) || 0;
+  const rate = parseFloat(document.getElementById('liRate').value) || 0;
+  if(!desc || qty <= 0){
+    alert('Enter a description and a quantity greater than 0.');
+    return;
+  }
+  lineItems.push({desc, qty, rate});
+  document.getElementById('liDesc').value = '';
+  document.getElementById('liQty').value = '';
+  document.getElementById('liRate').value = '';
+  renderLineItems();
+};
 
 function generateInvoice(){
-  const f = state.fields[currentField];
   const bizName = document.getElementById('bizName').value || 'Your Business';
   const buyer = document.getElementById('invBuyer').value || 'Cash sale';
 
-  const lines = Object.entries(f.sale).filter(([c,s])=> s.unit > 0);
-  if(!lines.length){
-    document.getElementById('invoicePreview').innerHTML = '<p class="hint" style="margin-top:12px;">No sale quantities entered for this field yet — add some in Total Sale above.</p>';
+  if(!lineItems.length){
+    document.getElementById('invoicePreview').innerHTML = '<p class="hint" style="margin-top:12px;">Add at least one line item above before generating.</p>';
     return;
   }
 
-  const total = lines.reduce((s,[c,v])=> s + v.unit*v.rate, 0);
+  const total = lineItems.reduce((s,li)=> s + li.qty*li.rate, 0);
   const num = invoiceCounter++;
   const today = new Date().toLocaleDateString('en-ZA');
 
-  const rowsHtml = lines.map(([c,v])=>
-    `<tr><td>${c}</td><td class="num">${v.unit}</td><td class="num">${rand(v.rate)}</td><td class="num">${rand(v.unit*v.rate)}</td></tr>`
+  const rowsHtml = lineItems.map(li=>
+    `<tr><td>${li.desc}</td><td class="num">${li.qty}</td><td class="num">${rand(li.rate)}</td><td class="num">${rand(li.qty*li.rate)}</td></tr>`
   ).join('');
 
   document.getElementById('invoicePreview').innerHTML = `
     <div class="invoice-sheet">
       <div class="inv-head">
         <div><h3>Invoice</h3><div style="font-size:13px;color:var(--ink-soft)">${bizName}</div></div>
-        <div class="inv-meta">Invoice #FB-${num}<br>Date: ${today}<br>Field: ${f.name}</div>
+        <div class="inv-meta">Invoice #FB-${num}<br>Date: ${today}</div>
       </div>
       <div class="inv-parties">
         <div><div class="lbl">From</div>${bizName}</div>
         <div style="text-align:right"><div class="lbl">Bill to</div>${buyer}</div>
       </div>
       <table>
-        <thead><tr><th>Description</th><th class="num">Unit</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+        <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
       <div class="inv-totals">
